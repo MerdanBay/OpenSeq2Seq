@@ -5,7 +5,10 @@ from __future__ import unicode_literals
 import tensorflow as tf
 
 from .encoder import Encoder
-from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv, conv_ln_actv, conv_in_actv, conv_bn_res_bn_actv
+from open_seq2seq.data.speech2text.speech2text import Speech2TextDataLayer
+from open_seq2seq.parts.cnns.conv_blocks import conv_actv, conv_bn_actv,\
+                                                conv_ln_actv, conv_in_actv,\
+                                                conv_bn_res_bn_actv
 
 
 class TDNNEncoder(Encoder):
@@ -27,6 +30,9 @@ class TDNNEncoder(Encoder):
         'normalization': [None, 'batch_norm', 'layer_norm', 'instance_norm'],
         'bn_momentum': float,
         'bn_epsilon': float,
+        'use_conv_mask': bool,
+        'drop_block_prob': float,
+        'drop_block_index': int,
     })
 
   def __init__(self, params, model, name="w2l_encoder", mode='train'):
@@ -36,7 +42,7 @@ class TDNNEncoder(Encoder):
 
     Config parameters:
 
-    * **dropout_keep_prop** (float) --- keep probability for dropout.
+    * **dropout_keep_prob** (float) --- keep probability for dropout.
     * **convnet_layers** (list) --- list with the description of convolutional
       layers. For example::
         "convnet_layers": [
@@ -65,9 +71,16 @@ class TDNNEncoder(Encoder):
     * **data_format** (string) --- could be either "channels_first" or
       "channels_last". Defaults to "channels_last".
     * **normalization** --- normalization to use. Accepts [None, 'batch_norm'].
-      Use None if you don't want to use normalization. Defaults to 'batch_norm'.     
+      Use None if you don't want to use normalization. Defaults to 'batch_norm'.
     * **bn_momentum** (float) --- momentum for batch norm. Defaults to 0.90.
     * **bn_epsilon** (float) --- epsilon for batch norm. Defaults to 1e-3.
+    * **drop_block_prob** (float) --- probability of dropping encoder blocks.
+      Defaults to 0.0 which corresponds to training without dropping blocks.
+    * **drop_block_index** (int) -- index of the block to drop on inference.
+      Defaults to -1 which corresponds to keeping all blocks.
+    * **use_conv_mask** (bool) --- whether to apply a sequence mask prior to
+      convolution operations. Defaults to False for backwards compatibility.
+      Recommended to set as True
     """
     super(TDNNEncoder, self).__init__(params, model, name, mode)
 
@@ -94,6 +107,22 @@ class TDNNEncoder(Encoder):
     """
 
     source_sequence, src_length = input_dict['source_tensors']
+    
+    num_pad = tf.constant(0)
+
+    if isinstance(self._model.get_data_layer(), Speech2TextDataLayer):
+      pad_to = 0
+      if self._model.get_data_layer().params.get('backend', 'psf') == 'librosa':
+        pad_to = self._model.get_data_layer().params.get("pad_to", 8)
+        
+      if pad_to > 0:
+        num_pad = tf.mod(pad_to - tf.mod(tf.reduce_max(src_length), pad_to), pad_to)
+    else:
+      print("WARNING: TDNNEncoder is currently meant to be used with the",
+            "Speech2Text data layer. Assuming that this data layer does not",
+            "do additional padding past padded_batch.")
+
+    max_len = tf.reduce_max(src_length) + num_pad
 
     training = (self._mode == "train")
     dropout_keep_prob = self.params['dropout_keep_prob'] if training else 1.0
@@ -101,7 +130,18 @@ class TDNNEncoder(Encoder):
     data_format = self.params.get('data_format', 'channels_last')
     normalization = self.params.get('normalization', 'batch_norm')
 
+    drop_block_prob = self.params.get('drop_block_prob', 0.0)
+    drop_block_index = self.params.get('drop_block_index', -1)
+
     normalization_params = {}
+
+    if self.params.get("use_conv_mask", False):
+      mask = tf.sequence_mask(
+          lengths=src_length, maxlen=max_len,
+          dtype=source_sequence.dtype
+      )
+      mask = tf.expand_dims(mask, 2)
+
     if normalization is None:
       conv_block = conv_actv
     elif normalization == "batch_norm":
@@ -140,16 +180,40 @@ class TDNNEncoder(Encoder):
       residual = convnet_layers[idx_convnet].get('residual', False)
       residual_dense = convnet_layers[idx_convnet].get('residual_dense', False)
 
+
+      # For the first layer in the block, apply a mask
+      if self.params.get("use_conv_mask", False):
+        conv_feats = conv_feats * mask
+
       if residual:
         layer_res = conv_feats
         if residual_dense:
           residual_aggregation.append(layer_res)
           layer_res = residual_aggregation
+
       for idx_layer in range(layer_repeat):
+
         if padding == "VALID":
           src_length = (src_length - kernel_size[0]) // strides[0] + 1
+          max_len = (max_len - kernel_size[0]) // strides[0] + 1
         else:
           src_length = (src_length + strides[0] - 1) // strides[0]
+          max_len = (max_len + strides[0] - 1) // strides[0]
+
+        # For all layers other than first layer, apply mask
+        if idx_layer > 0 and self.params.get("use_conv_mask", False):
+          conv_feats = conv_feats * mask
+
+        # Since we have a stride 2 layer, we need to update mask for future operations
+        if (self.params.get("use_conv_mask", False) and
+            (padding == "VALID" or strides[0] > 1)):
+          mask = tf.sequence_mask(
+              lengths=src_length,
+              maxlen=max_len,
+              dtype=conv_feats.dtype
+          )
+          mask = tf.expand_dims(mask, 2)
+
         if residual and idx_layer == layer_repeat - 1:
           conv_feats = conv_bn_res_bn_actv(
               layer_type=layer_type,
@@ -166,6 +230,8 @@ class TDNNEncoder(Encoder):
               regularizer=regularizer,
               training=training,
               data_format=data_format,
+              drop_block_prob=drop_block_prob,
+              drop_block=(drop_block_index == idx_convnet),
               **normalization_params
           )
         else:
@@ -185,6 +251,7 @@ class TDNNEncoder(Encoder):
               data_format=data_format,
               **normalization_params
           )
+
         conv_feats = tf.nn.dropout(x=conv_feats, keep_prob=dropout_keep)
 
     outputs = conv_feats

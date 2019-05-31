@@ -14,7 +14,7 @@ Currently we support following models:
    :header-rows: 1
 
    * - Model description
-     - WER, %
+     - Greedy WER, %
      - Config file
      - Checkpoint
 
@@ -28,26 +28,16 @@ Currently we support following models:
      - `w2l_plus_large_mp <https://github.com/NVIDIA/OpenSeq2Seq/blob/master/example_configs/speech2text/w2lplus_large_8gpus_mp.py>`_
      - `link <https://drive.google.com/file/d/10EYe040qVW6cfygSZz6HwGQDylahQNSa/view?usp=sharing>`_
 
-   * - :doc:`Jasper 10x3 </speech-recognition/jasper>`
-     - 5.10
-     - `jasper_10x3_8gpus_mp <https://github.com/NVIDIA/OpenSeq2Seq/blob/master/example_configs/speech2text/jasper_10x3_8gpus_mp.py>`_
-     - `link <https://drive.google.com/a/nvidia.com/file/d/1hI9Rv_px5vqpuWQOCwfKmZzRVXMPiTtT/view?usp=sharing>`_
-
-   * - :doc:`Jasper 10x5 syn </speech-recognition/jasper>`
-     - 4.32
-     - `jasper_10x5_8gpus_mp <https://github.com/NVIDIA/OpenSeq2Seq/blob/master/example_configs/speech2text/jasper_10x5_8gpus_mp.py>`_
-     - `link <https://drive.google.com/a/nvidia.com/file/d/1b9CHczABFG4TRgtZg_jSaRQ-8oCjay76/view?usp=sharing>`_
-
-   * - :doc:`Jasper 10x5 dense res syn </speech-recognition/jasper>`
-     - 4.15
-     - `jasper_10x5_8gpus_dr_mp <https://github.com/NVIDIA/OpenSeq2Seq/blob/master/example_configs/speech2text/jasper_10x5_8gpus_dr_mp.py>`_
-     - `link <https://drive.google.com/a/nvidia.com/file/d/1QMIHurNukxcorgmU5n2v1pnghGlg7dDr/view?usp=sharing>`_
+   * - :doc:`Jasper DR 10x5 </speech-recognition/jasper>`
+     - 3.64
+     - `jasper10x5_LibriSpeech_nvgrad <https://github.com/NVIDIA/OpenSeq2Seq/blob/master/example_configs/speech2text/jasper10x5_LibriSpeech_nvgrad.py>`_
+     - `link <https://drive.google.com/a/nvidia.com/file/d/1gzGT8HoVNKY1i5HNQTKaSoCu7JHV4siR/view?usp=sharing>`_
 
 
 WER is the word error rate obtained on a dev-clean subset of LibriSpeech using
 greedy decoder (``decoder_params/use_language_model = False``).
 For the evaluation we used ``batch_size_per_gpu = 1``
-to eliminate the effect of `cudnn padding issue <https://github.com/NVIDIA/OpenSeq2Seq/issues/69>`_.
+to eliminate the effect of `cuDNN padding issue <https://github.com/NVIDIA/OpenSeq2Seq/issues/69>`_.
 
 For more details about model and training parameters,
 have a look at the `configuration files <https://github.com/NVIDIA/OpenSeq2Seq/blob/master/example_configs/speech2text>`_ and specific model's documentation.
@@ -75,7 +65,7 @@ English speech recognition on LibriSpeech dataset.
 Get data
 ********
 
-Download and preprocess Librispeech dataset::
+Download and preprocess LibriSpeech dataset::
 
  python scripts/import_librivox.py data/librispeech
 
@@ -108,10 +98,7 @@ In order to get greedy Word Error Rate (WER) metric on validation dataset, pleas
 
  python run.py --config_file=example_configs/speech2text/ds2_small_1gpu.py --mode=eval
 
-
-If you would like to use beam search decoder with language model re-scoring, please use parameter ``decoder_params/use_language_model=True``::
-
- python run.py --config_file=example_configs/speech2text/ds2_small_1gpu.py --mode=eval --decoder_params/use_language_model=True
+If you would like to use beam search decoder with language model re-scoring, please see `link <https://github.com/NVIDIA/OpenSeq2Seq/tree/master/external_lm_rescore>`_
 
 
 *************
@@ -140,7 +127,8 @@ To train with Horovod on <N> GPUs, use the following command::
 Synthetic data
 ##############
 
-Our current best model was trained using synthetic data. The creation of the synthetic data and training process is described :ref:`here <synthetic_data>`.
+Speech recognition models can be optionally trained using synthetic data.
+The creation of the synthetic data and training process is described :ref:`here <synthetic_data>`.
 
 
 .. toctree::
@@ -148,3 +136,9 @@ Our current best model was trained using synthetic data. The creation of the syn
    :maxdepth: 1
 
    speech-recognition/synthetic_dataset
+
+
+##############
+Tools
+##############
+Word alignments : :doc:`Align words </speech-recognition/speech-to-text-align>`

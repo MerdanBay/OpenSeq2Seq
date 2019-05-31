@@ -70,6 +70,7 @@ class Model:
         'eval_steps': int,
         'finetune': bool,
         'eval_batch_size_per_gpu': int,
+        'hooks': list,
 
         'random_seed': int,
         'num_epochs': int,
@@ -103,6 +104,9 @@ class Model:
         'trt_minimum_segment_size': int,
         'trt_is_dynamic_op': bool,
         'trt_maximum_cached_engines': int,
+
+        # Parameters for XLA
+        'use_xla_jit' : bool,
     }
 
   def __init__(self, params, mode="train", hvd=None):

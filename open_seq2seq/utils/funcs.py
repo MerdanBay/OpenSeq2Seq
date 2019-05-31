@@ -18,7 +18,7 @@ from .helpers import TransferMonitoredTrainingSession, TransferScaffold
 from open_seq2seq.data import WKTDataLayer
 
 
-def train(train_model, eval_model=None, debug_port=None):
+def train(train_model, eval_model=None, debug_port=None, custom_hooks=None):
   if eval_model is not None and 'eval_steps' not in eval_model.params:
     raise ValueError("eval_steps parameter has to be specified "
                      "if eval_model is provided")
@@ -36,8 +36,16 @@ def train(train_model, eval_model=None, debug_port=None):
     # pylint: disable=no-member
     sess_config.gpu_options.visible_device_list = str(hvd.local_rank())
 
+  if train_model.params.get('use_xla_jit', False):
+    sess_config.graph_options.optimizer_options.global_jit_level = (
+        tf.OptimizerOptions.ON_1)
+
   # defining necessary hooks
   hooks = [tf.train.StopAtStepHook(last_step=train_model.last_step)]
+  if custom_hooks:
+    for custom_hook in custom_hooks:
+      hooks.append(custom_hook(train_model=train_model, eval_model=eval_model))
+
   if hvd is not None:
     hooks.append(BroadcastGlobalVariablesHook(0))
 
